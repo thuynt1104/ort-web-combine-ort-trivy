@@ -1,0 +1,59 @@
+<article class="job-card status-{{ job.status.value }}">
+  <header>
+    <strong>{{ job.name }}</strong>
+    <span id="job-status-badge-{{ job.job_id }}" class="status-pill status-pill-{{ job.status.value }}"><span class="status-dot"></span>{{ job.status.value }}</span>
+  </header>
+  <p class="mono" style="word-break:break-all; color:var(--secondary); margin:4px 0;">{{ display_ort_command(job.command) }}</p>
+  <p class="mono" style="color:var(--muted); margin:0 0 8px; font-size:12px;">{{ job.created_at }}</p>
+  {% if job.error_message %}
+  <div class="alert-warning" style="margin:0 0 8px;">{{ job.error_message }}</div>
+  {% endif %}
+  <pre id="job-log-{{ job.job_id }}" class="log-console" style="max-height:70vh; overflow:auto; white-space:pre-wrap;">{{ log_text }}</pre>
+</article>
+
+{% if job.status.value in ('pending', 'running') %}
+<script>
+(function() {
+  var jobId = '{{ job.job_id }}';
+  var logEl = document.getElementById('job-log-' + jobId);
+  var badge = document.getElementById('job-status-badge-' + jobId);
+  if (!logEl) return;
+
+  logEl.scrollTop = logEl.scrollHeight;
+
+  var src = new EventSource('/jobs/' + jobId + '/events');
+
+  src.addEventListener('log', function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.line) {
+        logEl.textContent += data.line;
+        var nearBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 100;
+        if (nearBottom) logEl.scrollTop = logEl.scrollHeight;
+      }
+    } catch (_) {}
+  });
+
+  src.addEventListener('status', function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      var status = data.status || '';
+      if (badge) {
+        badge.textContent = status;
+        badge.className = 'status-pill status-pill-' + status;
+      }
+      if (status === 'success' || status === 'failed' || status === 'cancelled') {
+        src.close();
+        setTimeout(function() {
+          window.location.reload();
+        }, 500);
+      }
+    } catch (_) {}
+  });
+
+  src.onerror = function() {
+    src.close();
+  };
+})();
+</script>
+{% endif %}

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ t('app.title') }}</title>
+  <script>
+    window.__initErrors = [];
+    window.onerror = function(msg, src, line, col, err) {
+      window.__initErrors.push({ msg: msg, src: src, line: line });
+    };
+  </script>
+  <script src="/static/vendor/htmx.min.js?v={{ app_version }}"></script>
+  <link rel="stylesheet" href="/static/css/app.css?v={{ app_version }}" />
+  <script src="/static/js/app.js?v={{ app_version }}"></script>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <a class="sidebar-brand" href="#" onclick="switchTab('dashboard'); return false;">
+        <svg class="sidebar-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span>OSS Guard</span>
+      </a>
+
+      <nav class="sidebar-nav" id="sidebar-nav">
+        <a href="/"
+           data-tab="dashboard"
+           onclick="switchTab('dashboard'); return false;"
+           class="sidebar-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          {{ t('nav.dashboard') }}
+        </a>
+        <a href="/results/"
+           data-tab="history"
+           onclick="switchTab('history'); return false;"
+           class="sidebar-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          {{ t('nav.history') }}
+        </a>
+        <a href="/setup/?lang={{ lang }}"
+           data-tab="setup"
+           class="sidebar-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 15.8 6.7 18.1l1-5.8-4.2-4.1 5.9-.9L12 2z"/></svg>
+          {{ t('nav.setup') }}
+        </a>
+      </nav>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="lang-switch">
+        <a href="#" onclick="setLang('vi'); return false;" class="lang-btn{% if lang == 'vi' %} lang-active{% endif %}">VI</a>
+        <a href="#" onclick="setLang('en'); return false;" class="lang-btn{% if lang == 'en' %} lang-active{% endif %}">EN</a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Mobile header -->
+  <header class="mobile-header">
+    <button class="mobile-menu-btn" onclick="document.body.classList.toggle('sidebar-open')" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <a class="mobile-brand" href="#" onclick="switchTab('dashboard'); return false;">OSS Guard</a>
+    <div class="lang-switch">
+      <a href="#" onclick="setLang('vi'); return false;" class="lang-btn{% if lang == 'vi' %} lang-active{% endif %}">VI</a>
+      <a href="#" onclick="setLang('en'); return false;" class="lang-btn{% if lang == 'en' %} lang-active{% endif %}">EN</a>
+    </div>
+  </header>
+
+  <!-- Overlay for mobile sidebar -->
+  <div class="sidebar-overlay" onclick="document.body.classList.remove('sidebar-open')"></div>
+
+  <!-- Main content: two persistent tab panes, never destroyed after first load -->
+  <main class="main-content">
+    <!-- SSR content (hidden): JS moves this into the correct pane on init -->
+    <div id="ssr-content" style="display:none">{% block content %}{% endblock %}</div>
+
+    <div class="container" id="tab-dashboard" style="display:none"></div>
+    <div class="container" id="tab-history" style="display:none"></div>
+    <div class="container" id="tab-setup" style="display:none"></div>
+  </main>
+
+<script>
+  var _lang = '{{ lang }}';
+  var _tabUrl = {
+    dashboard: '/',
+    history: '/results/',
+    setup: '/setup/',
+  };
+  // Which tabs have been fully loaded into DOM (content + scripts initialised)
+  var _tabReady = { dashboard: false, history: false, setup: false };
+  var _currentTab = null;
+
+  function _runScripts(pane) {
+    pane.querySelectorAll('script').forEach(function(s) {
+      var n = document.createElement('script');
+      n.textContent = s.textContent;
+      s.parentNode.replaceChild(n, s);
+    });
+  }
+
+  function _setActiveLink(name) {
+    document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(function(a) {
+      a.classList.toggle('active', a.getAttribute('data-tab') === name);
+    });
+  }
+
+  // Switch to a tab — instant if already loaded, one-time fetch otherwise.
+  function switchTab(name) {
+    if (_currentTab === name && _tabReady[name]) return;
+
+    if (window.ORTRealtime && _currentTab && _currentTab !== name) {
+      window.ORTRealtime.teardownAll();
+    }
+
+    _currentTab = name;
+
+    ['dashboard', 'history', 'setup'].forEach(function(tab) {
+      if (tab !== name) {
+        document.getElementById('tab-' + tab).style.display = 'none';
+      }
+    });
+    document.getElementById('tab-' + name).style.display = '';
+
+    _setActiveLink(name);
+    history.pushState({ tab: name }, '', _tabUrl[name] + '?lang=' + _lang);
+
+    document.body.classList.remove('sidebar-open');
+
+    if (_tabReady[name]) {
+      // Already in DOM — just restore job panel if returning to dashboard
+      if (name === 'dashboard') {
+        setTimeout(function() {
+          if (!document.getElementById('active-job-panel')) {
+            var jid = localStorage.getItem('ort_active_job');
+            if (jid && typeof loadJobPanel === 'function') loadJobPanel(jid, false);
+          }
+        }, 0);
+      }
+      return;
+    }
+
+    // First visit: fetch partial content (HX-Request triggers base_partial.html)
+    _tabReady[name] = true;
+    var pane = document.getElementById('tab-' + name);
+    var url = _tabUrl[name] + '?lang=' + _lang;
+    fetch(url, { headers: { 'HX-Request': '1' } })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        pane.innerHTML = html;
+        try { if (window.htmx) htmx.process(pane); } catch (_) {}
+        try { _runScripts(pane); } catch (_) {}
+      })
+      .catch(function() {
+        pane.innerHTML = '<div style="padding:24px;color:var(--danger);">Failed to load content. Please refresh.</div>';
+      });
+  }
+
+  function setLang(l) {
+    // Full reload to the current tab's URL with new lang
+    var path = _tabUrl[_currentTab] || '/';
+    window.location.href = path + '?lang=' + l;
+  }
+
+  // Init: move server-rendered content to the correct pane, no extra fetch needed
+  (function() {
+    var path = window.location.pathname;
+    var name = 'dashboard';
+    if (path.startsWith('/results') || path.startsWith('/jobs/')) {
+      name = 'history';
+    } else if (path.startsWith('/setup')) {
+      name = 'setup';
+    }
+    var pane = document.getElementById('tab-' + name);
+    var ssr = document.getElementById('ssr-content');
+
+    if (ssr) {
+      pane.innerHTML = ssr.innerHTML;
+      ssr.remove();
+    } else {
+      // ssr-content missing = server returned an error page without the expected layout
+      pane.innerHTML = '<div style="padding:24px;color:#e74c3c;font-family:monospace">'
+        + '<b>&#9888; Could not load content.</b><br>'
+        + 'The server may have returned an error. '
+        + 'Check the <a href="/api/debug-info" target="_blank">debug info</a> or open DevTools (F12) &rarr; Network tab.'
+        + '</div>';
+    }
+    try { if (window.htmx) htmx.process(pane); } catch (_) {}
+    try { _runScripts(pane); } catch (_) {}
+
+    _tabReady[name] = true;
+    _currentTab = name;
+    pane.style.display = '';
+    _setActiveLink(name);
+  })();
+
+  // Browser back/forward
+  window.addEventListener('popstate', function(e) {
+    var tab = e.state && e.state.tab
+      ? e.state.tab
+      : ((window.location.pathname.startsWith('/results') || window.location.pathname.startsWith('/jobs/')) ? 'history' : (window.location.pathname.startsWith('/setup') ? 'setup' : 'dashboard'));
+    // Allow re-show even if same tab (back/fwd should always work)
+    var prev = _currentTab;
+    _currentTab = null;
+    if (tab === prev) {
+      // Just toggle display without pushing state again
+      _currentTab = tab;
+      ['dashboard', 'history', 'setup'].forEach(function(name) {
+        if (name !== tab) {
+          document.getElementById('tab-' + name).style.display = 'none';
+        }
+      });
+      document.getElementById('tab-' + tab).style.display = '';
+    } else {
+      switchTab(tab);
+    }
+  });
+
+  // Debug: detect blank dashboard (visible pane with no content, or all panes hidden)
+  window.addEventListener('load', function() {
+    var activePaneEmpty = false;
+    ['dashboard','history','setup'].forEach(function(t) {
+      var el = document.getElementById('tab-' + t);
+      if (el && el.style.display !== 'none' && el.innerHTML.trim() === '') {
+        activePaneEmpty = true;
+      }
+    });
+    var anyVisible = ['dashboard','history','setup'].some(function(t) {
+      var el = document.getElementById('tab-' + t);
+      return el && el.style.display !== 'none';
+    });
+    if (!anyVisible || activePaneEmpty) {
+      var info = [
+        '<b style="color:red">&#9888; Dashboard blank — diagnostic:</b><br><br>',
+        'Active pane empty: <b>' + activePaneEmpty + '</b><br>',
+        'Any pane visible: <b>' + anyVisible + '</b><br>',
+        'htmx loaded: <b>' + (typeof window.htmx !== 'undefined') + '</b><br>',
+        'ORTRealtime loaded: <b>' + (typeof window.ORTRealtime !== 'undefined') + '</b><br>',
+        'ssr-content found at init: <b>' + (document.getElementById("ssr-content") === null ? "no (already removed)" : "yes") + '</b><br>',
+        'User-Agent: ' + navigator.userAgent + '<br><br>',
+      ];
+      if (window.__initErrors && window.__initErrors.length) {
+        info.push('<b>JS Errors captured:</b><br>');
+        window.__initErrors.forEach(function(e) {
+          info.push('&#8226; ' + e.msg + '<br>&nbsp;&nbsp;(' + e.src + ':' + e.line + ')<br>');
+        });
+      } else {
+        info.push('<b>No JS errors captured.</b> Check server:<br>');
+        info.push('&rarr; <a href="/api/debug-info" target="_blank">/api/debug-info</a><br>');
+      }
+      info.push('<br><button onclick="location.reload()">Reload page</button>');
+      var dbg = document.createElement('div');
+      dbg.style.cssText = 'position:fixed;top:60px;right:16px;max-width:480px;background:#fff;border:2px solid #e74c3c;border-radius:8px;z-index:9999;padding:16px;font-family:monospace;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.2);overflow:auto;max-height:80vh;';
+      dbg.innerHTML = info.join('');
+      document.body.appendChild(dbg);
+    }
+  });
+</script>
+</body>
+</html>

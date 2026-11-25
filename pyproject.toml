@@ -1,0 +1,37 @@
+[project]
+name = "ort-web"
+version = "0.3.0"
+description = "Local web GUI for OSS Review Toolkit (ORT)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.34.0",
+  "jinja2>=3.1.4",
+  "python-multipart>=0.0.20",
+  "pyyaml>=6.0",
+  "scancode-toolkit>=32.0.0",
+  "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "httpx>=0.28.0",
+]
+
+[project.scripts]
+oss-guard = "app.cli:main"
+
+[tool.uvicorn]
+factory = false
+host = "127.0.0.1"
+port = 8000
+reload = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

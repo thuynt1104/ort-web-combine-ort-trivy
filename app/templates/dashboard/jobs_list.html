@@ -1,0 +1,111 @@
+{% if jobs %}
+<div class="job-list">
+  {% for job in jobs %}
+  <div class="job-item job-item-{{ job.status.value }}" data-job-id="{{ job.job_id }}" data-job-status="{{ job.status.value }}">
+    <div class="job-item-summary">
+      <section class="panel" style="margin-top:0; border-left:4px solid {% if job.status.value == 'success' %}var(--success){% elif job.status.value == 'failed' %}var(--danger){% elif job.status.value == 'running' %}var(--primary-light){% else %}var(--warning){% endif %};">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <h2 style="margin:0;">{{ job.name }}</h2>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="status-pill status-pill-{{ job.status.value }}"><span class="status-dot"></span>{{ status_map[job.status.value] }}</span>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; margin-top:12px; font-size:13px;">
+          <div>
+            <span style="color:var(--muted); font-size:12px;">Job ID</span>
+            <div class="mono" style="color:var(--secondary);">{{ job.job_id[:12] }}...</div>
+          </div>
+          {% if job.detected_language %}
+          <div>
+            <span style="color:var(--muted); font-size:12px;">{{ t('dashboard.jobs_col_language') }}</span>
+            <div style="color:var(--secondary);">{{ job.detected_language }}</div>
+          </div>
+          {% endif %}
+          <div>
+            <span style="color:var(--muted); font-size:12px;">{{ t('dashboard.jobs_col_created') }}</span>
+            <div class="mono" style="color:var(--secondary);">{{ fmt_dt(job.created_at) }}</div>
+          </div>
+          {% if job.finished_at %}
+          <div>
+            <span style="color:var(--muted); font-size:12px;">Finished</span>
+            <div class="mono" style="color:var(--secondary);">{{ fmt_dt(job.finished_at) }}</div>
+          </div>
+          {% endif %}
+        </div>
+
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer; font-size:12px; color:var(--muted); font-weight:500;">{{ t('dashboard.jobs_col_command') }}</summary>
+          <div class="mono" style="margin-top:4px; font-size:12px; color:var(--secondary); word-break:break-all;">{{ display_ort_command(job.command) }}</div>
+        </details>
+
+        {% if job.project_path %}
+        <p style="margin:8px 0 0; font-size:12px; color:var(--secondary);" class="mono">{{ job.project_path }}</p>
+        {% endif %}
+
+        {% if job.status.value in ('pending', 'running') %}
+        <div class="progress-bar progress-bar-indeterminate" style="margin-top:10px;">
+          <div class="progress-bar-fill"></div>
+        </div>
+        {% endif %}
+
+        {% if job.error_message %}
+        <div class="alert-warning" style="margin-top:10px;">{{ job.error_message }}</div>
+        {% endif %}
+
+        {% set vs = vuln_summaries.get(job.job_id) if vuln_summaries is defined else none %}
+        {% if vs and vs.total > 0 %}
+        <div style="margin-top:10px; padding:10px 12px; background:var(--danger-light); border:1px solid var(--danger-border); border-radius:var(--radius); display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px;">
+          <span>&#9888;</span>
+          <span style="font-weight:600; color:var(--danger);">ORT · {{ t('job.vuln_warning') }} ({{ vs.total }})</span>
+          {% if vs.critical > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:#fca5a5; color:#7f1d1d;">{{ t('job.vuln_critical') }}: {{ vs.critical }}</span>{% endif %}
+          {% if vs.high > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:#fed7aa; color:#92400e;">{{ t('job.vuln_high') }}: {{ vs.high }}</span>{% endif %}
+          {% if vs.medium > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:#fde68a; color:#78350f;">{{ t('job.vuln_medium') }}: {{ vs.medium }}</span>{% endif %}
+          {% if vs.low > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_low') }}: {{ vs.low }}</span>{% endif %}
+          {% if vs.get('unknown', 0) > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_unknown') }}: {{ vs.get('unknown', 0) }}</span>{% endif %}
+        </div>
+        {% endif %}
+
+        {% set tvs = trivy_vuln_summaries.get(job.job_id) if trivy_vuln_summaries is defined else none %}
+        {% if tvs and tvs.total > 0 %}
+        <div style="margin-top:8px; padding:10px 12px; background:var(--danger-light); border:1px solid var(--danger-border); border-radius:var(--radius); display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px;">
+          <span>&#9888;</span>
+          <span style="font-weight:600; color:var(--danger);">Trivy · {{ t('job.vuln_warning') }} ({{ tvs.total }})</span>
+          {% if tvs.critical > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:#fca5a5; color:#7f1d1d;">{{ t('job.vuln_critical') }}: {{ tvs.critical }}</span>{% endif %}
+          {% if tvs.high > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:#fed7aa; color:#92400e;">{{ t('job.vuln_high') }}: {{ tvs.high }}</span>{% endif %}
+          {% if tvs.medium > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:#fde68a; color:#78350f;">{{ t('job.vuln_medium') }}: {{ tvs.medium }}</span>{% endif %}
+          {% if tvs.low > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_low') }}: {{ tvs.low }}</span>{% endif %}
+          {% if tvs.get('unknown', 0) > 0 %}<span style="padding:1px 8px; border-radius:10px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_unknown') }}: {{ tvs.get('unknown', 0) }}</span>{% endif %}
+        </div>
+        {% endif %}
+
+        <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+          <a class="btn-secondary btn-sm" href="/jobs/{{ job.job_id }}?lang={{ lang }}">{{ t('dashboard.view_results_btn') }}</a>
+        </div>
+      </section>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if total_pages is defined and total_pages > 1 %}
+<div class="pagination">
+  <span class="pagination-info">{{ total }} {{ t('dashboard.pagination_total') }} &middot; {{ t('dashboard.pagination_page') }} {{ page }}/{{ total_pages }}</span>
+  <div class="pagination-buttons">
+    {% if page > 1 %}
+    <button class="btn-secondary btn-sm" onclick="goToPage({{ page - 1 }})">&#8592; {{ t('dashboard.pagination_prev') }}</button>
+    {% endif %}
+    {% if page < total_pages %}
+    <button class="btn-secondary btn-sm" onclick="goToPage({{ page + 1 }})">{{ t('dashboard.pagination_next') }} &#8594;</button>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  <p>{{ t('dashboard.jobs_empty') }}</p>
+</div>
+{% endif %}

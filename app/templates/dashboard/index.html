@@ -1,0 +1,500 @@
+{% extends base_template %}
+{% block content %}
+<section class="hero">
+  <h1>{{ t('hero.title') }}</h1>
+  <p>{{ t('hero.subtitle') }}</p>
+</section>
+
+{% if notice_key %}
+<section class="panel notice">
+  {{ t(notice_key) }}
+</section>
+{% endif %}
+
+<!-- KPI Stats Row -->
+<div class="stat-row">
+  <div class="stat-card {% if scanner_ready %}stat-success{% else %}stat-danger{% endif %}">
+    <div class="stat-label">{{ t('dashboard.scanner_status') }}</div>
+    <div class="stat-value">{% if scanner_ready %}{{ t('dashboard.engine_active') }}{% else %}{{ t('dashboard.engine_na') }}{% endif %}</div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-label">{{ t('dashboard.recent_jobs') }}</div>
+    <div class="stat-value">{{ total_jobs if total_jobs is defined else '-' }}</div>
+  </div>
+  <div class="stat-card stat-success">
+    <div class="stat-label">{{ t('status.success') }}</div>
+    <div class="stat-value">{{ success_jobs if success_jobs is defined else '-' }}</div>
+  </div>
+  <div class="stat-card stat-danger">
+    <div class="stat-label">{{ t('status.failed') }}</div>
+    <div class="stat-value">{{ failed_jobs if failed_jobs is defined else '-' }}</div>
+  </div>
+</div>
+
+<!-- Scanner Status Section -->
+<section class="panel">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+    <h2 style="margin:0;">{{ scanner_label }}</h2>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      {% if scanner_ready %}
+        <span class="status-pill status-pill-success"><span class="status-dot"></span>{{ t('dashboard.ort_installed') }}</span>
+      {% else %}
+        <span class="status-pill status-pill-failed"><span class="status-dot"></span>{{ t('dashboard.ort_not_installed') }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if ort_path %}
+    <p style="margin:8px 0 0; font-size:13px; color:var(--secondary);">
+      <code>{{ ort_path }}</code><br/>
+      {{ t('dashboard.engines_note') }}
+    </p>
+  {% else %}
+    <p style="margin:8px 0 0; font-size:13px; color:var(--secondary);">{{ t('dashboard.ort_install_prompt') }}</p>
+    <form id="installForm" onsubmit="return submitInstall(event);" style="margin-top:12px;">
+      <input type="hidden" name="language" value="{{ lang }}" />
+      <div class="row-input">
+        <input id="installDir" name="install_dir" placeholder="{{ t('dashboard.install_dir_placeholder') }}" style="flex:1;" />
+        <button type="button" onclick="pickInstallDirectory()" class="btn-secondary">{{ t('dashboard.pick_folder_btn') }}</button>
+        <button type="submit" class="btn-primary" id="installBtn">{{ t('dashboard.install_ort_btn') }}</button>
+      </div>
+    </form>
+    <!-- Install progress (hidden by default) -->
+    <div id="install-progress" style="display:none; margin-top:12px;">
+      <div class="alert-warning" style="margin-bottom:10px;">
+        {{ t('dashboard.install_warning') }}
+      </div>
+      <div id="install-progressbar" class="progress-bar progress-bar-indeterminate">
+        <div class="progress-bar-fill"></div>
+      </div>
+      <div style="margin-top:6px; display:flex; align-items:center; justify-content:space-between;">
+        <span id="install-status-text" style="font-size:12px; color:var(--muted);">{{ t('dashboard.installing') }}...</span>
+        <span id="install-status-badge" class="status-pill status-pill-running"><span class="status-dot"></span>{{ t('status.running') }}</span>
+      </div>
+      <!-- Log area shown on failure -->
+      <div id="install-log-area" style="display:none; margin-top:12px;">
+        <div style="font-size:12px; font-weight:600; margin-bottom:4px; color:var(--danger);">{{ t('dashboard.install_log_label') }}</div>
+        <pre id="install-log-text" class="log-console" style="border-radius:6px;padding:10px;font-size:11px;max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;"></pre>
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<!-- Project Analysis Section -->
+{% if scanner_ready %}
+<section class="panel">
+  <h2>{{ t('dashboard.project_analysis') }}</h2>
+  <p>{{ t('dashboard.project_analysis_help') }}</p>
+
+  <form id="projectForm" onsubmit="return submitAnalysis(event);">
+    <input type="hidden" name="ui_language" value="{{ lang }}" />
+    <input type="hidden" name="command" value="analyze" />
+
+    <label>{{ t('dashboard.project_path') }}</label>
+    <div class="row-input">
+      <input type="text" name="project_path" id="projectPath"
+             value=""
+             placeholder="{{ t('dashboard.project_path') }}..."
+             required readonly style="flex:1;" />
+      <button type="button" onclick="pickProjectDirectory()" class="btn-secondary">
+        {{ t('dashboard.pick_folder_btn') }}
+      </button>
+    </div>
+
+    <div id="analyzerOptions" style="display:none;">
+      <label>{{ t('dashboard.language_select') }}</label>
+      <select name="language" id="languageSelect" style="width:100%;">
+          <option value="">-- {{ t('dashboard.auto_detect') }} --</option>
+          {% for opt in language_options %}
+            <option value="{{ opt.value }}">{{ opt.label }}</option>
+          {% endfor %}
+      </select>
+      <fieldset class="scan-configurator">
+        <legend>{{ t('dashboard.run_options') }}</legend>
+        <!-- Compatibility fields keep an already-running pre-scan-mode backend
+             correct until the Python process is restarted. -->
+        <input id="runAnalyzeCompat" name="run_analyze" type="hidden" value="on" />
+        <input id="runScancodeCompat" name="run_scancode" type="hidden" value="on" />
+        <div class="scan-mode-grid">
+          <label class="scan-mode-card scan-mode-vuln" for="scanModeVulnerability">
+            <input id="scanModeVulnerability" name="scan_mode" value="vulnerability" type="radio" />
+            <span class="scan-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3 4.5 6v5.2c0 4.8 3.2 8.1 7.5 9.8 4.3-1.7 7.5-5 7.5-9.8V6L12 3Z"/>
+                <path d="m9.4 12 1.7 1.7 3.7-4"/>
+              </svg>
+            </span>
+            <span class="scan-mode-copy">
+              <span class="scan-mode-title">{{ t('dashboard.mode_vulnerability') }}</span>
+              <span class="scan-mode-description">{{ t('dashboard.run_analyze_help') }}</span>
+            </span>
+            <span class="scan-mode-check" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m5 10 3 3 7-7"/>
+              </svg>
+            </span>
+          </label>
+          <label class="scan-mode-card scan-mode-license" for="scanModeLicense">
+            <input id="scanModeLicense" name="scan_mode" value="license" type="radio" />
+            <span class="scan-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/>
+                <path d="M14 3v5h5M9 13h6M9 17h4"/>
+              </svg>
+            </span>
+            <span class="scan-mode-copy">
+              <span class="scan-mode-title">{{ t('dashboard.mode_license') }}</span>
+              <span class="scan-mode-description">{{ t('dashboard.run_scancode_help') }}</span>
+            </span>
+            <span class="scan-mode-check" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m5 10 3 3 7-7"/>
+              </svg>
+            </span>
+          </label>
+          <label class="scan-mode-card scan-mode-full" for="scanModeFull">
+            <input id="scanModeFull" name="scan_mode" value="full" type="radio" checked />
+            <span class="scan-mode-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/>
+                <circle cx="12" cy="12" r="4"/>
+                <path d="m10.5 12 1 1 2-2"/>
+              </svg>
+            </span>
+            <span class="scan-mode-copy">
+              <span class="scan-mode-title">{{ t('dashboard.mode_full') }}</span>
+              <span class="scan-mode-description">{{ t('dashboard.mode_full_help') }}</span>
+            </span>
+            <span class="scan-mode-check" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m5 10 3 3 7-7"/>
+              </svg>
+            </span>
+          </label>
+        </div>
+        <div class="scan-launch-bar">
+          <div class="scan-selection-status">
+            <span class="scan-selection-dot" aria-hidden="true"></span>
+            <span id="scanSelectionSummary">{{ t('dashboard.selection_both') }}</span>
+          </div>
+          <button type="submit" class="scan-start-button" id="analyzeBtn">
+            <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M6.5 4.3a1 1 0 0 1 1.5-.86l8.1 5.7a1 1 0 0 1 0 1.72L8 16.56a1 1 0 0 1-1.5-.86V4.3Z"/>
+            </svg>
+            <span class="scan-start-label">{{ t('dashboard.start_btn') }}</span>
+          </button>
+        </div>
+      </fieldset>
+
+      <div id="recommendedManagers" style="display:none; padding:10px 14px; background:var(--info-light); border:1px solid var(--info-border); border-radius:var(--radius); font-size:13px; color:var(--primary); margin-top:8px;">
+        <strong>{{ t('dashboard.recommended_managers') }}:</strong>
+        <span id="recommendedManagersList"></span>
+      </div>
+
+      <div style="padding:10px 14px; background:var(--line-light); border-radius:var(--radius); font-size:12px; color:var(--secondary); margin-top:8px;">
+        {% if config_yml_content %}
+          <span style="color:var(--success);">{{ t('dashboard.config_ready') }}: <code>{{ config_yml_path }}</code></span>
+        {% else %}
+          {{ t('dashboard.config_not_ready') }}
+        {% endif %}
+        <br/>{{ t('dashboard.auto_config_note') }}
+      </div>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<!-- Inline job panel container — populated by JS after analyze submit -->
+<div id="job-panel-container"></div>
+
+<script>
+  var _panelLoading = false;
+
+  async function loadJobPanel(jobId, scroll) {
+    if (_panelLoading) return;
+    var container = document.getElementById('job-panel-container');
+    if (!container) return;
+    _panelLoading = true;
+    if (window.ORTRealtime) {
+      window.ORTRealtime.teardownAll();
+    }
+    try {
+      var resp = await fetch('/jobs/' + jobId + '/panel?lang={{ lang }}');
+      if (!resp.ok) { localStorage.removeItem('ort_active_job'); return; }
+      var html = await resp.text();
+      container.innerHTML = html;
+      try { if (window.htmx) htmx.process(container); } catch (_) {}
+      container.querySelectorAll('script').forEach(function(s) {
+        var n = document.createElement('script');
+        n.textContent = s.textContent;
+        s.parentNode.replaceChild(n, s);
+      });
+      if (scroll) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      console.error(err);
+      localStorage.removeItem('ort_active_job');
+    } finally {
+      _panelLoading = false;
+    }
+  }
+
+  // Restore active job panel — runs on both full load and HTMX navigation
+  (function() {
+    var jobId = localStorage.getItem('ort_active_job');
+    if (jobId && !document.getElementById('active-job-panel')) {
+      loadJobPanel(jobId, false);
+    }
+  })();
+
+  // Cancel a running/pending job from the inline panel.
+  // Defined on the dashboard scope so it survives panel reloads.
+  window.cancelActiveJob = async function(jobId) {
+    if (!jobId) return;
+    if (!window.confirm('{{ t("job.cancel_confirm") }}')) return;
+
+    var btn = document.getElementById('job-cancel-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '{{ t("job.cancel_in_progress") }}'; }
+
+    try {
+      var resp = await fetch('/jobs/' + jobId + '/cancel', { method: 'POST' });
+      var data = await resp.json().catch(function() { return {}; });
+      if (!resp.ok || data.cancelled === false) {
+        alert(data.reason || data.detail || '{{ t("job.cancel_failed") }}');
+        if (btn) { btn.disabled = false; btn.textContent = '{{ t("job.cancel_btn") }}'; }
+        return;
+      }
+
+      if (window.ORTRealtime) window.ORTRealtime.teardownAll();
+      localStorage.removeItem('ort_active_job');
+
+      var container = document.getElementById('job-panel-container');
+      if (container) container.innerHTML = '';
+    } catch (err) {
+      console.error(err);
+      alert('{{ t("job.cancel_failed") }}');
+      if (btn) { btn.disabled = false; btn.textContent = '{{ t("job.cancel_btn") }}'; }
+    }
+  };
+
+  async function pickDirectoryInto(targetInputId) {
+    try {
+      var response = await fetch('/api/pick-directory');
+      var data = await response.json();
+      if (data.selected) {
+        document.getElementById(targetInputId).value = data.selected;
+        return;
+      }
+      alert('{{ t("dashboard.error_pick_folder") }}');
+    } catch (err) {
+      console.error(err);
+      alert('{{ t("dashboard.error_pick_folder") }}');
+    }
+  }
+
+  async function pickInstallDirectory() {
+    await pickDirectoryInto('installDir');
+  }
+
+  async function pickProjectDirectory() {
+    await pickDirectoryInto('projectPath');
+    var path = document.getElementById('projectPath').value;
+    if (path) {
+      document.getElementById('analyzerOptions').style.display = '';
+      await detectLanguage();
+    }
+  }
+
+  async function detectLanguage() {
+    var projectPath = document.getElementById('projectPath').value;
+    var languageSelect = document.getElementById('languageSelect');
+    if (!projectPath) return;
+
+    try {
+      var response = await fetch('/api/detect-language', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_path: projectPath })
+      });
+      var data = await response.json();
+
+      if (data.detected) {
+        languageSelect.value = data.detected;
+        var mgrsBox = document.getElementById('recommendedManagers');
+        var mgrsList = document.getElementById('recommendedManagersList');
+        if (data.recommended_managers && data.recommended_managers.length > 0) {
+          mgrsList.textContent = data.recommended_managers.join(', ');
+          mgrsBox.style.display = 'block';
+        } else {
+          mgrsBox.style.display = 'none';
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function submitAnalysis(e) {
+    e.preventDefault();
+    var form = document.getElementById('projectForm');
+    var btn = document.getElementById('analyzeBtn');
+    var btnLabel = btn.querySelector('.scan-start-label');
+    var container = document.getElementById('job-panel-container');
+
+    btn.disabled = true;
+    if (btnLabel) btnLabel.textContent = '{{ t("status.running") }}...';
+
+    try {
+      var response = await fetch('/jobs/analyze-project', {
+        method: 'POST',
+        body: new FormData(form)
+      });
+      var data = await response.json();
+
+      if (data.job_id) {
+        localStorage.setItem('ort_active_job', data.job_id);
+        await loadJobPanel(data.job_id, true);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('{{ t("dashboard.error_pick_folder") }}');
+    } finally {
+      btn.disabled = false;
+      if (btnLabel) btnLabel.textContent = '{{ t("dashboard.start_btn") }}';
+    }
+
+    return false;
+  }
+
+  (function() {
+    var modeInputs = document.querySelectorAll('input[name="scan_mode"]');
+    var startButton = document.getElementById('analyzeBtn');
+    var summary = document.getElementById('scanSelectionSummary');
+    var analyzeCompat = document.getElementById('runAnalyzeCompat');
+    var scancodeCompat = document.getElementById('runScancodeCompat');
+    if (!modeInputs.length || !startButton || !summary || !analyzeCompat || !scancodeCompat) return;
+
+    function syncRunOptions() {
+      var selected = document.querySelector('input[name="scan_mode"]:checked');
+      startButton.disabled = !selected;
+      analyzeCompat.value = selected && selected.value !== 'license' ? 'on' : 'off';
+      scancodeCompat.value = selected && selected.value !== 'vulnerability' ? 'on' : 'off';
+      if (!selected) {
+        summary.textContent = '{{ t("dashboard.selection_none") }}';
+      } else if (selected.value === 'vulnerability') {
+        summary.textContent = '{{ t("dashboard.selection_vuln") }}';
+      } else if (selected.value === 'license') {
+        summary.textContent = '{{ t("dashboard.selection_license") }}';
+      } else {
+        summary.textContent = '{{ t("dashboard.selection_both") }}';
+      }
+    }
+    modeInputs.forEach(function(input) {
+      input.addEventListener('change', syncRunOptions);
+    });
+    syncRunOptions();
+  })();
+
+  async function submitInstall(e) {
+    e.preventDefault();
+    var form = document.getElementById('installForm');
+    var btn = document.getElementById('installBtn');
+    var progressEl = document.getElementById('install-progress');
+    var badge = document.getElementById('install-status-badge');
+    var statusText = document.getElementById('install-status-text');
+
+    btn.disabled = true;
+    progressEl.style.display = '';
+
+    try {
+      var response = await fetch('/jobs/install-ort', {
+        method: 'POST',
+        body: new FormData(form)
+      });
+      var data = await response.json();
+
+      if (data.already_installed) {
+        statusText.textContent = '{{ t("dashboard.notice_already_installed") }}';
+        badge.className = 'status-pill status-pill-success';
+        badge.innerHTML = '<span class="status-dot"></span>{{ t("status.success") }}';
+        setTimeout(function() { window.location.reload(); }, 1000);
+        return false;
+      }
+
+      if (data.job_id) {
+        var installJobId = data.job_id;
+        var pollTimer = null;
+        var done = false;
+
+        function onInstallSuccess() {
+          if (done) return;
+          done = true;
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          badge.className = 'status-pill status-pill-success';
+          badge.innerHTML = '<span class="status-dot"></span>{{ t("status.success") }}';
+          statusText.textContent = '{{ t("dashboard.install_done") }}';
+          setTimeout(function() { window.location.reload(); }, 1000);
+        }
+
+        function onInstallFailed(jobId) {
+          if (done) return;
+          done = true;
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          badge.className = 'status-pill status-pill-failed';
+          badge.innerHTML = '<span class="status-dot"></span>{{ t("status.failed") }}';
+          statusText.textContent = '{{ t("dashboard.install_failed") }}';
+          document.getElementById('install-progressbar').style.display = 'none';
+          btn.disabled = false;
+          // Fetch and show install log
+          if (jobId) {
+            fetch('/jobs/' + jobId + '/log-text').then(function(r) { return r.text(); }).then(function(txt) {
+              if (txt.trim()) {
+                var logArea = document.getElementById('install-log-area');
+                document.getElementById('install-log-text').textContent = txt;
+                logArea.style.display = '';
+                logArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }
+            }).catch(function() {});
+          }
+        }
+
+        // SSE: real-time status from server
+        var src = new EventSource('/jobs/' + data.job_id + '/events');
+        src.addEventListener('status', function(ev) {
+          try {
+            var d = JSON.parse(ev.data);
+            var st = d.status || '';
+            if (st === 'success') { src.close(); onInstallSuccess(); }
+            else if (st === 'failed') { src.close(); onInstallFailed(installJobId); }
+          } catch (_) {}
+        });
+        src.addEventListener('log', function(ev) {
+          try {
+            var d = JSON.parse(ev.data);
+            var line = (d.line || '').replace(/^\[.*?\]\s*/, '').trim();
+            if (line) statusText.textContent = line;
+          } catch (_) {}
+        });
+
+        // Polling fallback: if SSE drops mid-install, keep checking disk
+        src.onerror = function() {
+          src.close();
+          if (done) return;
+          pollTimer = setInterval(async function() {
+            try {
+              var r = await fetch('/api/ort-status');
+              var s = await r.json();
+              if (s.installed) { clearInterval(pollTimer); onInstallSuccess(); }
+            } catch (_) {}
+          }, 5000);
+        };
+      }
+    } catch (err) {
+      console.error(err);
+      btn.disabled = false;
+      progressEl.style.display = 'none';
+    }
+
+    return false;
+  }
+</script>
+{% endblock %}

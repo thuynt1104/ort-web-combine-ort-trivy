@@ -1,0 +1,284 @@
+from __future__ import annotations
+
+import sqlite3
+import threading
+from pathlib import Path
+
+from app.config import settings
+from app.models import Job, JobStatus
+
+
+class JobStore:
+    def __init__(self, db_path: Path):
+        self._db_path = db_path
+        self._local = threading.local()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Return a persistent per-thread SQLite connection.
+
+        Opening a new connection on every query was the dominant latency source:
+        it re-ran all PRAGMAs and paid OS open() overhead on each call.
+        WAL mode allows unlimited concurrent readers so reusing a connection
+        per thread is safe.
+        """
+        con: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if con is None:
+            con = sqlite3.connect(
+                self._db_path,
+                check_same_thread=False,
+                timeout=10,
+            )
+            con.row_factory = sqlite3.Row
+            # Set once per connection — not repeated on every query.
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA synchronous=NORMAL")
+            con.execute("PRAGMA temp_store=MEMORY")
+            con.execute("PRAGMA mmap_size=134217728")   # 128 MB
+            con.execute("PRAGMA cache_size=-65536")     # 64 MB page cache
+            con.execute("PRAGMA busy_timeout=5000")     # wait up to 5 s on lock
+            self._local.conn = con
+        return con
+
+    def initialize(self) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                create table if not exists jobs (
+                    job_id text primary key,
+                    name text not null,
+                    command text not null,
+                    work_dir text not null,
+                    language text not null,
+                    status text not null,
+                    created_at text not null,
+                    started_at text,
+                    finished_at text,
+                    exit_code integer,
+                    error_message text,
+                    log_file text not null,
+                    ort_install_path text,
+                    project_path text,
+                    detected_language text,
+                    ai_report_status text,
+                    ai_report_path text,
+                    ai_report_summary text,
+                    vuln_summary_json text,
+                    trivy_vuln_summary_json text,
+                    scancode_enabled integer,
+                    analysis_enabled integer
+                )
+                """
+            )
+
+            con.execute(
+                """
+                create table if not exists settings (
+                    key text primary key,
+                    value text not null,
+                    updated_at text not null
+                )
+                """
+            )
+            
+            # Migrate existing tables to add new columns
+            try:
+                con.execute("pragma table_info(jobs)")
+                columns = con.execute("pragma table_info(jobs)").fetchall()
+                column_names = {col[1] for col in columns}
+                
+                if "ort_install_path" not in column_names:
+                    con.execute("alter table jobs add column ort_install_path text")
+                if "project_path" not in column_names:
+                    con.execute("alter table jobs add column project_path text")
+                if "detected_language" not in column_names:
+                    con.execute("alter table jobs add column detected_language text")
+                if "ai_report_status" not in column_names:
+                    con.execute("alter table jobs add column ai_report_status text")
+                if "ai_report_path" not in column_names:
+                    con.execute("alter table jobs add column ai_report_path text")
+                if "ai_report_summary" not in column_names:
+                    con.execute("alter table jobs add column ai_report_summary text")
+                if "vuln_summary_json" not in column_names:
+                    con.execute("alter table jobs add column vuln_summary_json text")
+                if "trivy_vuln_summary_json" not in column_names:
+                    con.execute("alter table jobs add column trivy_vuln_summary_json text")
+                if "scancode_enabled" not in column_names:
+                    con.execute("alter table jobs add column scancode_enabled integer")
+                if "analysis_enabled" not in column_names:
+                    con.execute("alter table jobs add column analysis_enabled integer")
+            except Exception:
+                pass
+
+            # Indexes to speed up listing/filter queries (Phase 5).
+            try:
+                con.execute("create index if not exists idx_jobs_created_at on jobs(created_at desc)")
+                con.execute("create index if not exists idx_jobs_status on jobs(status)")
+                con.execute("create index if not exists idx_jobs_detected_language on jobs(detected_language)")
+                con.execute("create index if not exists idx_jobs_created_status on jobs(created_at desc, status)")
+            except Exception:
+                pass
+
+            con.commit()
+
+    def create_job(self, job: Job) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                insert into jobs (
+                    job_id, name, command, work_dir, language, status,
+                    created_at, started_at, finished_at, exit_code,
+                    error_message, log_file, ort_install_path, project_path,
+                    detected_language, ai_report_status, ai_report_path,
+                    ai_report_summary, vuln_summary_json, trivy_vuln_summary_json,
+                    scancode_enabled, analysis_enabled
+                ) values (
+                    :job_id, :name, :command, :work_dir, :language, :status,
+                    :created_at, :started_at, :finished_at, :exit_code,
+                    :error_message, :log_file, :ort_install_path, :project_path,
+                    :detected_language, :ai_report_status, :ai_report_path,
+                    :ai_report_summary, :vuln_summary_json, :trivy_vuln_summary_json,
+                    :scancode_enabled, :analysis_enabled
+                )
+                """,
+                job.to_row(),
+            )
+            con.commit()
+
+    def update_job(self, job: Job) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                update jobs
+                set
+                    name = :name,
+                    command = :command,
+                    work_dir = :work_dir,
+                    language = :language,
+                    status = :status,
+                    created_at = :created_at,
+                    started_at = :started_at,
+                    finished_at = :finished_at,
+                    exit_code = :exit_code,
+                    error_message = :error_message,
+                    log_file = :log_file,
+                    ort_install_path = :ort_install_path,
+                    project_path = :project_path,
+                    detected_language = :detected_language,
+                    ai_report_status = :ai_report_status,
+                    ai_report_path = :ai_report_path,
+                    ai_report_summary = :ai_report_summary,
+                    vuln_summary_json = :vuln_summary_json,
+                    trivy_vuln_summary_json = :trivy_vuln_summary_json,
+                    scancode_enabled = :scancode_enabled,
+                    analysis_enabled = :analysis_enabled
+                where job_id = :job_id
+                """,
+                job.to_row(),
+            )
+            con.commit()
+
+    def get_setting(self, key: str) -> str | None:
+        with self._connect() as con:
+            row = con.execute("select value from settings where key = ?", (key,)).fetchone()
+        return str(row[0]) if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                insert into settings (key, value, updated_at)
+                values (?, ?, ?)
+                on conflict(key) do update set
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (key, value, Job.now_iso()),
+            )
+            con.commit()
+
+    def get_job(self, job_id: str) -> Job | None:
+        with self._connect() as con:
+            row = con.execute("select * from jobs where job_id = ?", (job_id,)).fetchone()
+        return Job.from_row(dict(row)) if row else None
+
+    def list_jobs(self, limit: int = 50) -> list[Job]:
+        with self._connect() as con:
+            rows = con.execute(
+                "select * from jobs order by created_at desc limit ?",
+                (limit,),
+            ).fetchall()
+        return [Job.from_row(dict(row)) for row in rows]
+
+    def list_jobs_paged(
+        self,
+        *,
+        page: int = 1,
+        per_page: int = 10,
+        status: str = "",
+        query: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        detected_language: str = "",
+    ) -> tuple[list[Job], int]:
+        """Return (jobs, total_count) with filtering and pagination."""
+        clauses: list[str] = []
+        params: list[str | int] = []
+
+        if status and status != "all":
+            clauses.append("status = ?")
+            params.append(status)
+        if detected_language:
+            clauses.append("lower(coalesce(detected_language,'')) = ?")
+            params.append(detected_language.lower())
+        if query:
+            clauses.append(
+                "(lower(job_id || name || command || coalesce(project_path,'') || coalesce(detected_language,'')) like ?)"
+            )
+            params.append(f"%{query.lower()}%")
+        if date_from:
+            clauses.append("created_at >= ?")
+            params.append(date_from)
+        if date_to:
+            clauses.append("created_at < ?")
+            params.append(date_to + "T23:59:59Z" if "T" not in date_to else date_to)
+
+        where = (" where " + " and ".join(clauses)) if clauses else ""
+
+        with self._connect() as con:
+            total = con.execute(f"select count(*) from jobs{where}", params).fetchone()[0]
+            offset = (page - 1) * per_page
+            rows = con.execute(
+                f"select * from jobs{where} order by created_at desc limit ? offset ?",
+                [*params, per_page, offset],
+            ).fetchall()
+
+        return [Job.from_row(dict(r)) for r in rows], total
+
+    def delete_job(self, job_id: str) -> bool:
+        """Hard-delete a job row. Returns True if a row was removed."""
+        with self._connect() as con:
+            cursor = con.execute("delete from jobs where job_id = ?", (job_id,))
+            con.commit()
+            return cursor.rowcount > 0
+
+    def mark_running_jobs_as_failed(self) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                update jobs
+                set status = ?,
+                    finished_at = ?,
+                    error_message = ?
+                where status = ?
+                """,
+                (
+                    JobStatus.FAILED.value,
+                    Job.now_iso(),
+                    "Service restarted while job was running.",
+                    JobStatus.RUNNING.value,
+                ),
+            )
+            con.commit()
+
+
+job_store = JobStore(settings.jobs_db_path)

@@ -1,0 +1,208 @@
+<!-- Inline job panel for dashboard -->
+<section class="panel" id="active-job-panel" style="border-left:4px solid {% if job.status.value == 'success' %}var(--success){% elif job.status.value == 'failed' %}var(--danger){% elif job.status.value == 'running' %}var(--primary-light){% else %}var(--warning){% endif %};">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+    <h2 style="margin:0;">{{ job.name }}</h2>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span id="job-status-badge" class="status-pill status-pill-{{ job.status.value }}"><span class="status-dot"></span>{{ status_map[job.status.value] }}</span>
+      <button
+        id="job-cancel-btn"
+        type="button"
+        class="btn-secondary btn-sm"
+        onclick="cancelActiveJob('{{ job.job_id }}')"
+        style="{% if job.status.value not in ('pending', 'running') %}display:none;{% endif %}"
+      >{{ t('job.cancel_btn') }}</button>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; margin-top:12px; font-size:13px;">
+    <div>
+      <span style="color:var(--muted); font-size:12px;">Job ID</span>
+      <div class="mono" style="color:var(--secondary);">{{ job.job_id[:12] }}...</div>
+    </div>
+    {% if job.detected_language %}
+    <div>
+      <span style="color:var(--muted); font-size:12px;">{{ t('dashboard.jobs_col_language') }}</span>
+      <div style="color:var(--secondary);">{{ job.detected_language }}</div>
+    </div>
+    {% endif %}
+    <div>
+      <span style="color:var(--muted); font-size:12px;">{{ t('dashboard.jobs_col_created') }}</span>
+      <div class="mono" style="color:var(--secondary);">{{ fmt_dt(job.created_at) }}</div>
+    </div>
+    {% if job.finished_at %}
+    <div>
+      <span style="color:var(--muted); font-size:12px;">Finished</span>
+      <div class="mono" style="color:var(--secondary);">{{ fmt_dt(job.finished_at) }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <details style="margin-top:12px;">
+    <summary style="cursor:pointer; font-size:12px; color:var(--muted); font-weight:500;">{{ t('dashboard.jobs_col_command') }}</summary>
+    <div class="mono" style="margin-top:4px; font-size:12px; color:var(--secondary); word-break:break-all;">{{ display_ort_command(job.command) }}</div>
+  </details>
+
+  {% if job.error_message %}
+  <div class="alert-warning" style="margin-top:12px;">{{ job.error_message }}</div>
+  {% endif %}
+
+  {% if vuln_summary and vuln_summary.total > 0 %}
+  <div style="margin-top:12px; padding:12px 16px; background:var(--danger-light); border:1px solid var(--danger-border); border-radius:var(--radius); display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <span style="font-size:16px;">&#9888;</span>
+    <span style="font-weight:600; color:var(--danger); font-size:13px;">ORT · {{ t('job.vuln_warning') }} ({{ vuln_summary.total }})</span>
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      {% if vuln_summary.critical > 0 %}
+      <span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#fca5a5; color:#7f1d1d;">{{ t('job.vuln_critical') }}: {{ vuln_summary.critical }}</span>
+      {% endif %}
+      {% if vuln_summary.high > 0 %}
+      <span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#fed7aa; color:#92400e;">{{ t('job.vuln_high') }}: {{ vuln_summary.high }}</span>
+      {% endif %}
+      {% if vuln_summary.medium > 0 %}
+      <span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#fde68a; color:#78350f;">{{ t('job.vuln_medium') }}: {{ vuln_summary.medium }}</span>
+      {% endif %}
+      {% if vuln_summary.low > 0 %}
+      <span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_low') }}: {{ vuln_summary.low }}</span>
+      {% endif %}
+      {% if vuln_summary.get('unknown', 0) > 0 %}
+      <span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_unknown') }}: {{ vuln_summary.get('unknown', 0) }}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if trivy_vuln_summary and trivy_vuln_summary.total > 0 %}
+  <div style="margin-top:8px; padding:12px 16px; background:var(--danger-light); border:1px solid var(--danger-border); border-radius:var(--radius); display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <span style="font-size:16px;">&#9888;</span>
+    <span style="font-weight:600; color:var(--danger); font-size:13px;">Trivy · {{ t('job.vuln_warning') }} ({{ trivy_vuln_summary.total }})</span>
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      {% if trivy_vuln_summary.critical > 0 %}<span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#fca5a5; color:#7f1d1d;">{{ t('job.vuln_critical') }}: {{ trivy_vuln_summary.critical }}</span>{% endif %}
+      {% if trivy_vuln_summary.high > 0 %}<span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#fed7aa; color:#92400e;">{{ t('job.vuln_high') }}: {{ trivy_vuln_summary.high }}</span>{% endif %}
+      {% if trivy_vuln_summary.medium > 0 %}<span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:#fde68a; color:#78350f;">{{ t('job.vuln_medium') }}: {{ trivy_vuln_summary.medium }}</span>{% endif %}
+      {% if trivy_vuln_summary.low > 0 %}<span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_low') }}: {{ trivy_vuln_summary.low }}</span>{% endif %}
+      {% if trivy_vuln_summary.get('unknown', 0) > 0 %}<span style="padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; background:var(--line-light); color:var(--secondary);">{{ t('job.vuln_unknown') }}: {{ trivy_vuln_summary.get('unknown', 0) }}</span>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if job.status.value in ('pending', 'running') %}
+  <div id="job-progress" class="progress-bar progress-bar-indeterminate" style="margin-top:12px;">
+    <div class="progress-bar-fill"></div>
+  </div>
+  {% endif %}
+
+  <details id="job-log-details" style="margin-top:12px;" {% if job.status.value in ('pending', 'running') %}open{% endif %}>
+    <summary style="cursor:pointer; font-size:12px; font-weight:500; color:var(--muted);">{{ t('dashboard.show_log') }}</summary>
+    <pre id="job-log" class="log-console" style="max-height:350px; overflow:auto; white-space:pre-wrap; margin-top:8px;">{{ log_text }}</pre>
+  </details>
+
+  <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line-light);">
+    <h2>{{ t('results.generated_files') }}</h2>
+  <div id="job-files"
+       hx-get="/jobs/{{ job.job_id }}/files?lang={{ lang }}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+  </div>
+  </div>
+</section>
+
+<script>
+(function() {
+  if (!window.ORTRealtime) return;
+
+  var jobId = '{{ job.job_id }}';
+  var logEl = document.getElementById('job-log');
+  var badge = document.getElementById('job-status-badge');
+  var progress = document.getElementById('job-progress');
+  var filesEl = document.getElementById('job-files');
+  var shouldTrackStatus = {{ 'true' if job.status.value in ('pending', 'running') else 'false' }};
+
+  function reloadPanel() {
+    if (window.__ortPanelReloading === jobId) return;
+    window.__ortPanelReloading = jobId;
+
+    var clearReloadLock = function() {
+      if (window.__ortPanelReloading === jobId) {
+        window.__ortPanelReloading = null;
+      }
+      document.body.removeEventListener('htmx:afterSwap', afterSwapHandler);
+    };
+
+    var afterSwapHandler = function(evt) {
+      if (evt && evt.target && evt.target.id === 'job-panel-container') {
+        clearReloadLock();
+      }
+    };
+
+    document.body.addEventListener('htmx:afterSwap', afterSwapHandler);
+    window.setTimeout(clearReloadLock, 3000);
+    htmx.ajax('GET', '/jobs/' + jobId + '/panel?lang={{ lang }}', { target: '#job-panel-container', swap: 'innerHTML' });
+  }
+
+  var statusLabel = {
+    {% for key, val in status_map.items() %}
+    '{{ key }}': '{{ val }}',
+    {% endfor %}
+  };
+
+  if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+  if (shouldTrackStatus) {
+    window.ORTRealtime.attachJobStream({
+      jobId: jobId,
+      onLog: function(data) {
+        if (data.line && logEl) {
+          logEl.textContent += data.line;
+          var nearBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 100;
+          if (nearBottom) logEl.scrollTop = logEl.scrollHeight;
+        }
+      },
+      onStatus: function(data) {
+        if (!shouldTrackStatus) return;
+        var status = data.status || '';
+        if (badge) {
+          badge.className = 'status-pill status-pill-' + status;
+          badge.innerHTML = '<span class="status-dot"></span>' + (statusLabel[status] || status);
+        }
+
+        if (status === 'success' || status === 'failed' || status === 'cancelled') {
+          window.ORTRealtime.detachJobStream(jobId);
+          window.ORTRealtime.stopJobStatusFallbackPoll(jobId);
+          localStorage.removeItem('ort_active_job');
+          if (progress) progress.style.display = 'none';
+          var logDetails = document.getElementById('job-log-details');
+          if (logDetails) logDetails.removeAttribute('open');
+          var cancelBtn = document.getElementById('job-cancel-btn');
+          if (cancelBtn) cancelBtn.style.display = 'none';
+          var panel = document.getElementById('active-job-panel');
+          if (panel) {
+            var color = status === 'success' ? 'var(--success)' : 'var(--danger)';
+            panel.style.borderLeftColor = color;
+          }
+          if (filesEl) htmx.trigger(filesEl, 'load');
+          reloadPanel();
+        }
+      },
+      onError: function() {
+        if (shouldTrackStatus) {
+          window.ORTRealtime.startJobStatusFallbackPoll({
+            jobId: jobId,
+            intervalMs: 4000,
+            onTick: function(data) {
+              var status = data && data.status ? data.status : '';
+              if (badge && status) {
+                badge.className = 'status-pill status-pill-' + status;
+                badge.innerHTML = '<span class="status-dot"></span>' + (statusLabel[status] || status);
+              }
+            },
+            onDone: function() {
+              localStorage.removeItem('ort_active_job');
+              if (progress) progress.style.display = 'none';
+              reloadPanel();
+            },
+          });
+        }
+      },
+    });
+  }
+})();
+</script>
